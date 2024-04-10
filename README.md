@@ -66,7 +66,7 @@ To start the app locally, follow these steps:
     ```
     
 
-3. Open your web browser and navigate to `http://localhost:8000` 
+3. Open your web browser and navigate to `http://localhost:8000`
 
 ## Environment Variables
 
@@ -76,3 +76,15 @@ The following environment variables can be used to configure the FastAPI app:
 
 
 You can set these variables as needed before starting the server.
+
+## Documentation
+Documentation for the API can be accessed through the URL
+
+- For SwaggerUI
+    ```bash
+    http://localhost:8000/docs
+    ```
+- For Redoc
+    ```bash
+    http://localhost:8000/redoc
+    ```
