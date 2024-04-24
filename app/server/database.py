@@ -3,7 +3,7 @@ from bson.objectid import ObjectId
 from decouple import config
 
 MONGO_URI = config("MONGO_URI")  # read environment variable
-MONGO_URI = "mongodb+srv://Itachi:Helloworld14@cluster0.tleddj0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
 
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 
