@@ -49,31 +49,30 @@ class RateLimiterMiddleware:
         try:
             user_id = request.headers.get("user_id")
             if not user_id:
-                raise HTTPException(status_code=401, detail="Missing user_id in headers")
+                raise HTTPException(status_code=401, detail="Missing user_id in the headers")
 
             now = datetime.utcnow()
             window_start = now - timedelta(seconds=self.window_size)
             window_start_timestamp = int(window_start.timestamp())
-            
-            # Get count for user within the window from Redis
-            count = self.redis_client.zcount(
-                f"{user_id}:requests", window_start_timestamp, now.timestamp()
-            )
+
+            # Creates a Redis Pipeline
+            pipeline = self.redis_client.pipeline()
+
+            # Adds commands to the pipeline
+            pipeline.zcount(f"{user_id}:requests", window_start_timestamp, now.timestamp())
+            pipeline.zadd(f"{user_id}:requests", {now.timestamp(): now.timestamp()})
+            pipeline.zremrangebyscore(f"{user_id}:requests", "-inf", window_start_timestamp)
+
+            # Executes the pipeline
+            count, _, _ = pipeline.execute()
 
             # Check if count exceeds the limit
             if count >= self.max_requests:
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-            # Add current request timestamp to Redis sorted set
-            self.redis_client.zadd(
-                f"{user_id}:requests", {now.timestamp(): now.timestamp()}
-            )
-
-            # Remove old requests from Redis sorted set
-            self.redis_client.zremrangebyscore(
-                f"{user_id}:requests", 0, window_start_timestamp
-            )
-
+            expire_time = now + timedelta(days=1)
+            expire_timestamp = int(expire_time.timestamp())
+            pipeline.expire(f"{user_id}:requests", expire_timestamp - int(now.timestamp()))
             response = await call_next(request)
 
             return response
