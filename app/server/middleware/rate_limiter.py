@@ -2,6 +2,7 @@ import redis
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from datetime import datetime
+import time
 
 
 class RateLimiterMiddleware:
@@ -19,31 +20,43 @@ class RateLimiterMiddleware:
                     status_code=401, detail="Missing user_id in the headers"
                 )
 
-            # Get current date
-            todays_date = datetime.utcnow().strftime("%Y-%m-%d")
+            current_date = datetime.utcnow()
+            # Calculate the end of the day
+            end_of_day = datetime(
+                current_date.year, current_date.month, current_date.day, 23, 59, 59
+            )
+            # Calculate local offset time
+            local_timezone_offset_seconds = time.timezone
+            remaining_time = end_of_day - current_date
+            expiration_time = remaining_time.seconds - +(-local_timezone_offset_seconds)
+
+            key = f"{user_id}"
+            count = self.redis_client.get(key)
 
             # Check if the key exists
-            key = f"{todays_date}:{user_id}"
-            count = self.redis_client.get(key)
             if count is None:
                 # Key doesn't exist, set it with expiration
-                self.redis_client.set(key, 0, ex=86400)
+                self.redis_client.set(key, 1, expiration_time)
 
-            # Get count for user from Redis
+                # Assigning count = 1 for the edge case:  max_request = 1
+                count = 1
+                if count > self.max_requests:
+                    raise HTTPException(status_code=429, detail="Rate limit exceeded")
+                response = await call_next(request)
+                return response
+
+            # Get count and increment it for the user
             count = self.redis_client.incr(key)
 
-
-            # Check if count exceeds the limit (e.g. 1000 calls per day)
-            if count >= self.max_requests:
-                raise HTTPException(
-                    status_code=429, detail="Rate limit exceeded")
-
-            # Increment count in Redis
-            # self.redis_client.incr(key)
+            # Check if count exceeds the limit
+            if count > self.max_requests:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
             # Continue processing the request
-            response =  await call_next(request)
+            response = await call_next(request)
 
             return response
         except HTTPException as exc:
-            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+            return JSONResponse(
+                status_code=exc.status_code, content={"detail": exc.detail}
+            )
