@@ -49,30 +49,36 @@ class RateLimiterMiddleware:
         try:
             user_id = request.headers.get("user_id")
             if not user_id:
-                raise HTTPException(status_code=401, detail="Missing user_id in the headers")
+                raise HTTPException(status_code=401, detail="Missing user_id in headers")
 
             now = datetime.utcnow()
             window_start = now - timedelta(seconds=self.window_size)
             window_start_timestamp = int(window_start.timestamp())
 
-            # Creates a Redis Pipeline
+            # Create a Redis Pipeline
             pipeline = self.redis_client.pipeline()
 
-            # Adds commands to the pipeline
-            pipeline.zcount(f"{user_id}:requests", window_start_timestamp, now.timestamp())
-            pipeline.zadd(f"{user_id}:requests", {now.timestamp(): now.timestamp()})
+            # Remove old items from sorted set
             pipeline.zremrangebyscore(f"{user_id}:requests", "-inf", window_start_timestamp)
 
-            # Executes the pipeline
-            count, _, _ = pipeline.execute()
+            # Add current call to sorted set
+            pipeline.zadd(f"{user_id}:requests", {now.timestamp(): now.timestamp()})
 
-            # Check if count exceeds the limit
-            if count >= self.max_requests:
-                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            # Calculate count of elements in the sorted set within the sliding window
+            pipeline.zcount(f"{user_id}:requests", "-inf", now.timestamp())
 
+            # Set expiration time on the sorted set key (expire after 1 day)
             expire_time = now + timedelta(days=1)
             expire_timestamp = int(expire_time.timestamp())
-            pipeline.expire(f"{user_id}:requests", expire_timestamp - int(now.timestamp()))
+            pipeline.expireat(f"{user_id}:requests", expire_timestamp)
+
+            # Execute the pipeline
+            _, _, count, _ = pipeline.execute()
+
+            # Check if count exceeds the maximum allowed requests
+            if count > self.max_requests:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
             response = await call_next(request)
 
             return response
