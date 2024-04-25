@@ -39,7 +39,7 @@ class RateLimiterMiddleware:
 
             # Check if count exceeds the limit
             count = self.redis_client.get(key)
-            if int(count) > self.max_requests:
+            if int(count) >= self.max_requests:
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
             
             # Get count and increment it for the user
